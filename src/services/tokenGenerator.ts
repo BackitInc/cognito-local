@@ -106,7 +106,8 @@ export interface TokenGenerator {
   ): Promise<Tokens>;
   generateWithClientCreds(
       ctx: Context,
-      userPoolClient: AppClient
+      userPoolClient: AppClient,
+      scopes: string[],
   ): Promise<Tokens>;
 }
 
@@ -247,7 +248,8 @@ export class JwtTokenGenerator implements TokenGenerator {
 
   public async generateWithClientCreds(
       ctx: Context,
-      userPoolClient: AppClient
+      userPoolClient: AppClient,
+      scopes: string[],
   ): Promise<Tokens> {
     const eventId = uuid.v4();
     const authTime = Math.floor(this.clock.get().getTime() / 1000);
@@ -258,7 +260,7 @@ export class JwtTokenGenerator implements TokenGenerator {
       event_id: eventId,
       iat: authTime,
       jti: uuid.v4(),
-      scope: "aws.cognito.signin.user.admin", // TODO: scopes
+      scope: scopes.join(' '),
       sub: userPoolClient.ClientId,
       token_use: "access",
     };

@@ -79,6 +79,7 @@ export const createServer = (
         client_id: parsed.get("client_id"),
         client_secret: parsed.get("client_secret"),
         refresh_token: parsed.get("refresh_token"),
+        scope: parsed.get("scope"),
       };
 
       const auth = req.get("Authorization");
