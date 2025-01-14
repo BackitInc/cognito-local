@@ -23,6 +23,78 @@ type AdminInitiateAuthServices = Pick<
   "cognito" | "triggers" | "tokenGenerator"
 >;
 
+const adminNoSrpAuthFlow = async (
+  ctx: Context,
+  services: AdminInitiateAuthServices,
+  req: AdminInitiateAuthRequest
+): Promise<AdminInitiateAuthResponse> => {
+  // Validate required parameters
+  if (!req.AuthParameters) {
+    throw new InvalidParameterError(
+      "Missing required parameter AuthParameters"
+    );
+  }
+
+  const username = req.AuthParameters.USERNAME;
+
+  if (!username) {
+    throw new InvalidParameterError("AuthParameters USERNAME is required");
+  }
+
+  // Get the user pool and client
+  const userPool = await services.cognito.getUserPoolForClientId(
+    ctx,
+    req.ClientId
+  );
+  const userPoolClient = await services.cognito.getAppClient(ctx, req.ClientId);
+
+  if (!userPool || !userPoolClient) {
+    throw new NotAuthorizedError();
+  }
+
+  // Find the user in the user pool
+  const user = await userPool.getUserByUsername(ctx, username);
+  if (!user) {
+    throw new NotAuthorizedError();
+  }
+
+  // Check if the user is unconfirmed
+  if (user.UserStatus === "UNCONFIRMED") {
+    throw new UserNotConfirmedException();
+  }
+
+  // Retrieve the user's groups
+  const userGroups = await userPool.listUserGroupMembership(ctx, user);
+
+  // Generate authentication tokens
+  const tokens = await services.tokenGenerator.generate(
+    ctx,
+    user,
+    userGroups,
+    userPoolClient,
+    req.ClientMetadata,
+    "Authentication"
+  );
+
+  // Store the refresh token
+  await userPool.storeRefreshToken(ctx, tokens.RefreshToken || "", user);
+
+  // Return the authentication result
+  return {
+    ChallengeName: undefined,
+    Session: undefined,
+    ChallengeParameters: undefined,
+    AuthenticationResult: {
+      AccessToken: tokens.AccessToken,
+      RefreshToken: tokens.RefreshToken,
+      IdToken: tokens.IdToken,
+      NewDeviceMetadata: undefined,
+      TokenType: "Bearer",
+      ExpiresIn: 3600, // Tokens are valid for 1 hour
+    },
+  };
+};
+
 const adminUserPasswordAuthFlow = async (
   ctx: Context,
   services: AdminInitiateAuthServices,
@@ -87,7 +159,7 @@ const adminUserPasswordAuthFlow = async (
     "Authentication"
   );
 
-  await userPool.storeRefreshToken(ctx, tokens.RefreshToken, user);
+  await userPool.storeRefreshToken(ctx, tokens.RefreshToken || "", user);
 
   return {
     ChallengeName: undefined,
@@ -163,6 +235,8 @@ export const AdminInitiateAuth =
   async (ctx, req) => {
     if (req.AuthFlow === "ADMIN_USER_PASSWORD_AUTH") {
       return adminUserPasswordAuthFlow(ctx, services, req);
+    } else if (req.AuthFlow === "ADMIN_NO_SRP_AUTH") {
+      return adminNoSrpAuthFlow(ctx, services, req);
     } else if (
       req.AuthFlow === "REFRESH_TOKEN_AUTH" ||
       req.AuthFlow === "REFRESH_TOKEN"
